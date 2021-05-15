@@ -2,15 +2,13 @@ package ratelimit
 
 import (
 	"bufio"
+	"github.com/Alwandy/chapter1/pkg/ringbuffer"
 	"log"
 	"os"
-	"github.com/Alwandy/chapter1/pkg/ringbuffer"
-
 )
 
 type logEntries map[int]string
 func init() {
-	ringbuffer.initialize
 
 }
 // StartProcessingLogFile(fileName string) will read the .log file specified when calling the method and build the map object and execute the ratelimiter func

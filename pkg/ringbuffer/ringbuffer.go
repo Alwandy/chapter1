@@ -19,7 +19,7 @@ type rateLimitRules struct {
 	rule []time.Time
 }
 var rateLimitRulesPool = &sync.Pool{New: func() interface{} {return new(rateLimitRules)}}
-func (r *ringBufferRateLimiter) initialize(maxEvents int, window time.Duration) {
+func (r *ringBufferRateLimiter) Initialize(maxEvents int, window time.Duration) {
 	r.mu.Lock() // Locks the channel
 	defer r.mu.Unlock()
 
