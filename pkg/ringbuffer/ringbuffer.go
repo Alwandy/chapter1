@@ -8,7 +8,7 @@ import (
 // To achieve the rate limiting based on problem we need to use circular lists with ring implementation
 // Based on https://golang.org/pkg/container/ring/ & https://github.com/mholt/caddy-ratelimit
 // Converted to use Pool for faster implementation
-type ringBufferRateLimiter struct {
+type RingBufferRateLimiter struct {
 	mu 		sync.Mutex
 	window 	time.Duration
 	ring 	*sync.Pool
@@ -19,7 +19,7 @@ type rateLimitRules struct {
 	rule []time.Time
 }
 var rateLimitRulesPool = &sync.Pool{New: func() interface{} {return new(rateLimitRules)}}
-func (r *ringBufferRateLimiter) Initialize(maxEvents int, window time.Duration) {
+func (r *RingBufferRateLimiter) Initialize(maxEvents int, window time.Duration) {
 	r.mu.Lock() // Locks the channel
 	defer r.mu.Unlock()
 
@@ -42,7 +42,7 @@ func (r *ringBufferRateLimiter) Initialize(maxEvents int, window time.Duration) 
 // When returns the duration before the next allowable event; it does not block.
 // If zero, the event is allowed and a reservation is immediately made.
 // If non-zero, the event is NOT allowed and a reservation is not made.
-func (r *ringBufferRateLimiter) When() time.Duration {
+func (r *RingBufferRateLimiter) When() time.Duration {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.allowed() {
@@ -55,7 +55,7 @@ func (r *ringBufferRateLimiter) When() time.Duration {
 // It does not wait. If the event is allowed, a reservation is made.
 // It is NOT safe for concurrent use, so it must be called inside a
 // lock on r.mu.
-func (r *ringBufferRateLimiter) allowed() bool {
+func (r *RingBufferRateLimiter) allowed() bool {
 	if len(r.ring.Get().(*rateLimitRules).rule) == 0 {
 		return false
 	}
@@ -70,7 +70,7 @@ func (r *ringBufferRateLimiter) allowed() bool {
 // and advances the cursor.
 // It is NOT safe for concurrent use, so it must
 // be called inside a lock on r.mu.
-func (r *ringBufferRateLimiter) reserve() {
+func (r *RingBufferRateLimiter) reserve() {
 	r.ring.Get().(*rateLimitRules).rule[r.cursor] = now()
 	r.advance()
 }
@@ -78,7 +78,7 @@ func (r *ringBufferRateLimiter) reserve() {
 // advance moves the cursor to the next position.
 // It is NOT safe for concurrent use, so it must
 // be called inside a lock on r.mu.
-func (r *ringBufferRateLimiter) advance() {
+func (r *RingBufferRateLimiter) advance() {
 	r.cursor++
 	if r.cursor >= len(r.ring.Get().(*rateLimitRules).rule) {
 		r.cursor = 0
@@ -87,7 +87,7 @@ func (r *ringBufferRateLimiter) advance() {
 
 // MaxEvents returns the maximum number of events that
 // are allowed within the sliding window.
-func (r *ringBufferRateLimiter) MaxEvents() int {
+func (r *RingBufferRateLimiter) MaxEvents() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.ring.Get().(*rateLimitRules).rule)
@@ -98,7 +98,7 @@ func (r *ringBufferRateLimiter) MaxEvents() int {
 // the oldest events will be forgotten. If the new limit is
 // higher, the window will suddenly have capacity for new
 // reservations. It panics if maxEvents is less than 0.
-func (r *ringBufferRateLimiter) SetMaxEvents(maxEvents int) {
+func (r *RingBufferRateLimiter) SetMaxEvents(maxEvents int) {
 	if maxEvents < 0 {
 		panic("maxEvents cannot be less than zero")
 	}
@@ -143,7 +143,7 @@ func (r *ringBufferRateLimiter) SetMaxEvents(maxEvents int) {
 }
 
 // Window returns the size of the sliding window.
-func (r *ringBufferRateLimiter) Window() time.Duration {
+func (r *RingBufferRateLimiter) Window() time.Duration {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.window
@@ -151,7 +151,7 @@ func (r *ringBufferRateLimiter) Window() time.Duration {
 
 // SetWindow changes r's sliding window duration to window.
 // It panics if window is less than zero.
-func (r *ringBufferRateLimiter) SetWindow(window time.Duration) {
+func (r *RingBufferRateLimiter) SetWindow(window time.Duration) {
 	if window < 0 {
 		panic("window cannot be less than zero")
 	}
@@ -161,7 +161,7 @@ func (r *ringBufferRateLimiter) SetWindow(window time.Duration) {
 }
 
 // Count counts how many events are in the window from the reference time.
-func (r *ringBufferRateLimiter) Count(ref time.Time) int {
+func (r *RingBufferRateLimiter) Count(ref time.Time) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.countUnsynced(ref)
@@ -169,8 +169,7 @@ func (r *ringBufferRateLimiter) Count(ref time.Time) int {
 
 // countUnsycned counts how many events are in the window from the reference time.
 // It is NOT safe to use without a lock on r.mu.
-// TODO: this is currently O(n) but could probably become O(log n) if we switch to some weird, custom binary search modulo ring length around the cursor.
-func (r *ringBufferRateLimiter) countUnsynced(ref time.Time) int {
+func (r *RingBufferRateLimiter) countUnsynced(ref time.Time) int {
 	beginningOfWindow := ref.Add(-r.window)
 
 	// This loop is a little gnarly, I know. We start at one before the cursor because that's
