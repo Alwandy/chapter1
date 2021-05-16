@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"bufio"
+	"context"
 	"encoding/csv"
 	"fmt"
 	"github.com/Alwandy/chapter1/pkg/ringbuffer"
@@ -27,6 +28,7 @@ type events struct {
 }
 
 var wg sync.WaitGroup
+var ctx context.Context
 
 func Init(){
 	h := Handler{}
@@ -87,30 +89,40 @@ func (h *Handler) rateLimitExceeded(ip string) {
 	rule2.Initialize(40, 1*time.Minute)
 	rule3.Initialize(20, 10*time.Minute)
 	for x, _ := range h.event[ip].events {
-
+		if banlist[ip] {
+			t := time.Tick(1 * time.Minute)
+			for {
+				select {
+				case <- t:
+					continue
+				}
+			}
+		}
 		//Rules Reserve
 		rule.Reserve(h.event[ip].events[x].timestamps)
 		rule2.Reserve(h.event[ip].events[x].timestamps)
 		if h.event[ip].events[x].path == "/login" {
-		rule3.Reserve(h.event[ip].events[x].timestamps)
+			rule3.Reserve(h.event[ip].events[x].timestamps)
 		}
+
 		if rule3.Count(h.event[ip].events[x].timestamps) >= rule3.MaxEvents() && !banlist[ip] {
 			banlist[ip] = true
 			writeToCsv(ip, strconv.FormatInt(time.Now().Unix(), 10), "BAN")
 			fmt.Printf("BANNED IP %s on RULE 3\n", ip)
-			go unban(ip, 120, banlist)
+			go unban(ip, 3, banlist)
 		} else if rule2.Count(h.event[ip].events[x].timestamps) >= rule2.MaxEvents() && !banlist[ip] {
 			banlist[ip] = true
 			writeToCsv(ip, strconv.FormatInt(time.Now().Unix(), 10), "BAN")
 			fmt.Printf("BANNED IP %s on RULE 2\n", ip)
-			go unban(ip, 10, banlist)
+			go unban(ip, 2, banlist)
 		} else if rule.Count(h.event[ip].events[x].timestamps) >= rule.MaxEvents() && !banlist[ip] {
 			banlist[ip] = true
 			writeToCsv(ip, strconv.FormatInt(time.Now().Unix(), 10), "BAN")
 			fmt.Printf("BANNED IP %s on RULE 1\n", ip)
-			go unban(ip, 60, banlist)
+			go unban(ip, 1, banlist)
 		}
 	}
+	wg.Wait()
 }
 
 func writeToCsv(ip, timestamp, action string) {
@@ -127,10 +139,17 @@ func writeToCsv(ip, timestamp, action string) {
 }
 
 func unban(ip string, dur time.Duration, banlist map[string]bool) map[string]bool{
-	time.Sleep(dur * time.Minute)
-	writeToCsv(ip, strconv.FormatInt(time.Now().Unix(), 10), "UNBAN")
-	banlist[ip] = false
-	return banlist
+	wg.Add(1)
+	defer wg.Done()
+	t := time.Tick(dur * time.Second)
+	for {
+		select {
+			case <- t:
+				writeToCsv(ip, strconv.FormatInt(time.Now().Unix(), 10), "UNBAN")
+				banlist[ip] = false
+				return banlist
+		}
+	}
 }
 
 // ringBufPool reduces allocations from unneeded rate limiters.
