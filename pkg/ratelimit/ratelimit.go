@@ -33,26 +33,38 @@ func Init(){
 	h := Handler{}
 	h.process()
 }
+
 //process will start reading the sample log
 func (h *Handler) process() {
 	file, err := os.Open("test/sample.log")
 	if err != nil {
 		log.Fatalf("[ERROR] %s", err)
 	}
+	fi, err := file.Stat()
+	if err != nil {
+		log.Fatalf("[ERROR] %s", err)
+	}
+	if fi.Size() <= 0 {
+		log.Printf("[INFO] File %s is empty", file.Name())
+	}
 	defer file.Close() // Important to close file when done reading file
 	lines := bufio.NewScanner(file)
 	m := make(map[string]Event)
+
 	for lines.Scan() {
 		s := strings.Split(lines.Text(), " ")
 		s[3] = strings.Replace(s[3], "[", "", 1)
-		s[4] = strings.Replace(s[4], "]", "", 1)
-		timestamp, _ := time.Parse("02/Jan/2006:15:04:05", fmt.Sprintf("%s", s[3]))
-		t := events{timestamp, s[6] }
-		if _, ok := m[s[0]]; ok {
-			res := append(m[s[0]].events, t)
-			m[s[0]] = Event{events: res}
+		ip := s[0]
+		date := s[3]
+		path := s[6]
+
+		timestamp, _ := time.Parse("02/Jan/2006:15:04:05", fmt.Sprintf("%s", date))
+		t := events{timestamp, path }
+		if _, ok := m[ip]; ok {
+			res := append(m[ip].events, t)
+			m[ip] = Event{events: res}
 		} else {
-			m[s[0]] = Event{events: []events{t}}
+			m[ip] = Event{events: []events{t}}
 		}
 
 	}
@@ -107,18 +119,18 @@ func (h *Handler) rateLimitExceeded(ip string) {
 		if rule3.Count(h.event[ip].events[x].timestamps) >= rule3.MaxEvents() && !h.banlist[ip] {
 			h.banlist[ip] = true
 			writeToCsv(ip, strconv.FormatInt(time.Now().Unix(), 10), "BAN")
-			fmt.Printf("BANNED IP %s on RULE 3\n", ip)
-			go h.unban(ip, 120)
+			log.Printf("[INFO] BANNED IP %s on RULE 3\n", ip)
+			h.unban(ip, 120)
 		} else if rule2.Count(h.event[ip].events[x].timestamps) >= rule2.MaxEvents() && !h.banlist[ip] {
 			h.banlist[ip] = true
 			writeToCsv(ip, strconv.FormatInt(time.Now().Unix(), 10), "BAN")
-			fmt.Printf("BANNED IP %s on RULE 2\n", ip)
-			go h.unban(ip, 10)
+			log.Printf("[INFO] BANNED IP %s on RULE 2\n", ip)
+			h.unban(ip, 10)
 		} else if rule.Count(h.event[ip].events[x].timestamps) >= rule.MaxEvents() && !h.banlist[ip] {
 			h.banlist[ip] = true
 			writeToCsv(ip, strconv.FormatInt(time.Now().Unix(), 10), "BAN")
-			fmt.Printf("BANNED IP %s on RULE 1\n", ip)
-			go h.unban(ip, 60)
+			log.Printf("[INFO] BANNED IP %s on RULE 1\n", ip)
+			h.unban(ip, 60)
 		}
 	}
 	wg.Wait()
@@ -128,7 +140,7 @@ func writeToCsv(ip, timestamp, action string) {
 	// read the file
 	f, err := os.OpenFile("ban.csv", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
-		fmt.Println("Error: ", err)
+		log.Fatalf("[ERROR] %s", err)
 		return
 	}
 	column := []string{timestamp, action, ip}
