@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 )
-
+// Normally I wouldn't execute the code in a PKG, I would create a new class but for simplicity, I've done this
 type Handler struct {
 	event map[string]Event
 }
