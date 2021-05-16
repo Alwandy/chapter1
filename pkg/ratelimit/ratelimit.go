@@ -2,7 +2,6 @@ package ratelimit
 
 import (
 	"bufio"
-	"context"
 	"encoding/csv"
 	"fmt"
 	"github.com/Alwandy/chapter1/pkg/ringbuffer"
@@ -16,6 +15,7 @@ import (
 // Normally I wouldn't execute the code in a PKG, I would create a new class but for simplicity, I've done this
 type Handler struct {
 	event map[string]Event
+	banlist map[string]bool
 }
 
 type Event struct {
@@ -28,7 +28,6 @@ type events struct {
 }
 
 var wg sync.WaitGroup
-var ctx context.Context
 
 func Init(){
 	h := Handler{}
@@ -80,7 +79,7 @@ func (h *Handler) rateLimit(){
 func (h *Handler) rateLimitExceeded(ip string) {
 	wg.Add(1) // Added waitgroup so we can run the ratelimiting concurrently
 	defer wg.Done()
-	banlist := make(map[string]bool)
+	h.banlist = make(map[string]bool)
 	//Rules
 	rule := ringBufPool.Get().(*ringbuffer.RingBufferRateLimiter)
 	rule2 := ringBufPool.Get().(*ringbuffer.RingBufferRateLimiter)
@@ -89,7 +88,7 @@ func (h *Handler) rateLimitExceeded(ip string) {
 	rule2.Initialize(40, 1*time.Minute)
 	rule3.Initialize(20, 10*time.Minute)
 	for x, _ := range h.event[ip].events {
-		if banlist[ip] {
+		if h.banlist[ip] {
 			t := time.Tick(1 * time.Minute)
 			for {
 				select {
@@ -105,21 +104,21 @@ func (h *Handler) rateLimitExceeded(ip string) {
 			rule3.Reserve(h.event[ip].events[x].timestamps)
 		}
 
-		if rule3.Count(h.event[ip].events[x].timestamps) >= rule3.MaxEvents() && !banlist[ip] {
-			banlist[ip] = true
+		if rule3.Count(h.event[ip].events[x].timestamps) >= rule3.MaxEvents() && !h.banlist[ip] {
+			h.banlist[ip] = true
 			writeToCsv(ip, strconv.FormatInt(time.Now().Unix(), 10), "BAN")
 			fmt.Printf("BANNED IP %s on RULE 3\n", ip)
-			go unban(ip, 3, banlist)
-		} else if rule2.Count(h.event[ip].events[x].timestamps) >= rule2.MaxEvents() && !banlist[ip] {
-			banlist[ip] = true
+			go h.unban(ip, 120)
+		} else if rule2.Count(h.event[ip].events[x].timestamps) >= rule2.MaxEvents() && !h.banlist[ip] {
+			h.banlist[ip] = true
 			writeToCsv(ip, strconv.FormatInt(time.Now().Unix(), 10), "BAN")
 			fmt.Printf("BANNED IP %s on RULE 2\n", ip)
-			go unban(ip, 2, banlist)
-		} else if rule.Count(h.event[ip].events[x].timestamps) >= rule.MaxEvents() && !banlist[ip] {
-			banlist[ip] = true
+			go h.unban(ip, 10)
+		} else if rule.Count(h.event[ip].events[x].timestamps) >= rule.MaxEvents() && !h.banlist[ip] {
+			h.banlist[ip] = true
 			writeToCsv(ip, strconv.FormatInt(time.Now().Unix(), 10), "BAN")
 			fmt.Printf("BANNED IP %s on RULE 1\n", ip)
-			go unban(ip, 1, banlist)
+			go h.unban(ip, 60)
 		}
 	}
 	wg.Wait()
@@ -138,16 +137,13 @@ func writeToCsv(ip, timestamp, action string) {
 	w.Flush()
 }
 
-func unban(ip string, dur time.Duration, banlist map[string]bool) map[string]bool{
-	wg.Add(1)
-	defer wg.Done()
-	t := time.Tick(dur * time.Second)
+func (h *Handler) unban(ip string, dur time.Duration) {
+	t := time.Tick(dur * time.Minute)
 	for {
 		select {
 			case <- t:
 				writeToCsv(ip, strconv.FormatInt(time.Now().Unix(), 10), "UNBAN")
-				banlist[ip] = false
-				return banlist
+				h.banlist[ip] = false
 		}
 	}
 }
