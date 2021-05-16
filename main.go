@@ -7,5 +7,5 @@ import (
 
 func main() {
 	log.Println("[INFO] Starting rate limiter application")
-	ratelimit.StartProcessingLogFile("test/sample.log")
+	ratelimit.Init()
 }
